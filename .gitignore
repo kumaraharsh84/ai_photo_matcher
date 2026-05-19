@@ -1,0 +1,34 @@
+# Dependencies and build output
+node_modules/
+.next/
+dist/
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local environment files with secrets
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# Local uploads, temporary files, and database volumes
+backend/uploads/*
+!backend/uploads/.gitkeep
+postgres_data/
+
+# Local generated source/build artifacts
+backend/vendor-src/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
