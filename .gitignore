@@ -22,6 +22,7 @@ venv/
 # Local uploads, temporary files, and database volumes
 backend/uploads/*
 !backend/uploads/.gitkeep
+backend/models/
 postgres_data/
 
 # Local generated source/build artifacts

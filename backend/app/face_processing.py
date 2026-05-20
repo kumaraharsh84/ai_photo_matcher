@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import logging
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -9,6 +10,7 @@ from .storage import readable_image_file
 
 logger = logging.getLogger(__name__)
 _face_app = None
+MODEL_ROOT = Path(__file__).resolve().parents[1] / "models"
 
 
 def get_face_app():
@@ -17,7 +19,7 @@ def get_face_app():
         from insightface.app import FaceAnalysis
 
         logger.info("Loading InsightFace model buffalo_s on CPU")
-        _face_app = FaceAnalysis(name="buffalo_s", providers=["CPUExecutionProvider"])
+        _face_app = FaceAnalysis(name="buffalo_s", root=str(MODEL_ROOT), providers=["CPUExecutionProvider"])
         # ctx_id=-1 forces CPU mode. The model is prepared once and reused across requests.
         _face_app.prepare(ctx_id=-1, det_size=(320, 320))
         logger.info("InsightFace model loaded")
