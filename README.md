@@ -259,6 +259,18 @@ pip install -r requirements.txt
 .venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8010
 ```
 
+Render backend build command:
+
+```bash
+python -m pip install --upgrade pip && pip install -r requirements.txt && python scripts/preload_face_model.py
+```
+
+Render backend start command:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
 Start frontend:
 
 ```powershell
