@@ -14,7 +14,7 @@ import urllib.request
 import uuid
 
 import qrcode
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from .auth import create_access_token, get_current_user, hash_password, verify_password
 from .config import settings
-from .database import Base, engine, get_db
+from .database import Base, SessionLocal, engine, get_db
 from .face_processing import process_photo_faces
 from .matching import match_guest_selfie, session_matches
 from .models import Event, Face, GuestMatchSession, PaymentSession, Photo, User
@@ -213,6 +213,25 @@ def event_processing_status(event_id: str, db: Session) -> ProcessingStatus:
         failed_images=failed,
         status=status_value,
     )
+
+
+def process_uploaded_photo(photo_id: str):
+    db = SessionLocal()
+    try:
+        photo = db.get(Photo, photo_id)
+        if not photo:
+            logger.warning("Skipping face processing for missing photo_id=%s", photo_id)
+            return
+        process_photo_faces(db, photo)
+    except Exception:
+        logger.exception("Unexpected AI processing error for photo_id=%s", photo_id)
+        photo = db.get(Photo, photo_id)
+        if photo:
+            photo.processing_status = "failed"
+            photo.processing_error = "Unexpected AI processing error. This image was skipped."
+            db.commit()
+    finally:
+        db.close()
 
 
 @app.get("/health")
@@ -413,6 +432,7 @@ def get_photos(event_id: str, current_user: User = Depends(get_current_user), db
 @app.post("/events/{event_id}/photos", response_model=list[PhotoOut])
 async def upload_photos(
     event_id: str,
+    background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -437,14 +457,7 @@ async def upload_photos(
         db.refresh(photo)
 
     for photo in saved_photos:
-        try:
-            process_photo_faces(db, photo)
-        except Exception:
-            logger.exception("Unexpected AI processing error for photo_id=%s event_id=%s", photo.id, event_id)
-            photo.processing_status = "failed"
-            photo.processing_error = "Unexpected AI processing error. This image was skipped."
-            db.commit()
-        db.refresh(photo)
+        background_tasks.add_task(process_uploaded_photo, photo.id)
     return saved_photos
 
 
@@ -488,6 +501,31 @@ def get_processing_status(event_id: str, current_user: User = Depends(get_curren
     event = db.get(Event, event_id)
     if not event or event.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    return event_processing_status(event_id, db)
+
+
+@app.post("/events/{event_id}/process-pending", response_model=ProcessingStatus)
+def process_pending_photos(
+    event_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    event = db.get(Event, event_id)
+    if not event or event.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    photos = (
+        db.query(Photo)
+        .filter(Photo.event_id == event_id, Photo.processing_status.in_(["pending", "processing", "failed"]))
+        .order_by(Photo.upload_date.asc())
+        .all()
+    )
+    for photo in photos:
+        photo.processing_status = "pending"
+        photo.processing_error = None
+        background_tasks.add_task(process_uploaded_photo, photo.id)
+    db.commit()
     return event_processing_status(event_id, db)
 
 
