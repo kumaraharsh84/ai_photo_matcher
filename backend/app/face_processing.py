@@ -16,10 +16,10 @@ def get_face_app():
     if _face_app is None:
         from insightface.app import FaceAnalysis
 
-        logger.info("Loading InsightFace model buffalo_l on CPU")
-        _face_app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+        logger.info("Loading InsightFace model buffalo_s on CPU")
+        _face_app = FaceAnalysis(name="buffalo_s", providers=["CPUExecutionProvider"])
         # ctx_id=-1 forces CPU mode. The model is prepared once and reused across requests.
-        _face_app.prepare(ctx_id=-1, det_size=(640, 640))
+        _face_app.prepare(ctx_id=-1, det_size=(320, 320))
         logger.info("InsightFace model loaded")
     return _face_app
 

@@ -1,14 +1,15 @@
 "use client";
 
-import { Cloud, Download, Images, Instagram, Link2, QrCode, ScanFace, Share2, Wifi } from "lucide-react";
+import { Cloud, Download, Images, Instagram, Link2, QrCode, ScanFace, Share2, Trash2, Wifi } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { DashboardShell } from "@/components/DashboardShell";
 import { ImageUploader } from "@/components/ImageUploader";
 import { API_URL, apiFetch, assetUrl, EventItem, FaceItem, PhotoItem, ProcessingStatus } from "@/lib/api";
 
 export default function ManageEventPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const eventId = params.id;
   const [event, setEvent] = useState<EventItem | null>(null);
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
@@ -16,6 +17,9 @@ export default function ManageEventPage() {
   const [processing, setProcessing] = useState<ProcessingStatus | null>(null);
   const [copied, setCopied] = useState(false);
   const [wifiCopied, setWifiCopied] = useState(false);
+  const [deletingPhotoIds, setDeletingPhotoIds] = useState<string[]>([]);
+  const [deletingEvent, setDeletingEvent] = useState(false);
+  const [actionError, setActionError] = useState("");
 
   async function loadAiData() {
     const [faceData, statusData] = await Promise.all([
@@ -66,6 +70,41 @@ export default function ManageEventPage() {
     window.setTimeout(() => setWifiCopied(false), 1400);
   }
 
+  async function deletePhoto(photo: PhotoItem) {
+    const confirmed = window.confirm("Delete this photo from the event and storage?");
+    if (!confirmed) return;
+
+    setActionError("");
+    setDeletingPhotoIds((current) => [...current, photo.id]);
+    try {
+      await apiFetch(`/events/${eventId}/photos/${photo.id}`, { method: "DELETE" });
+      setPhotos((current) => current.filter((item) => item.id !== photo.id));
+      setFaces((current) => current.filter((face) => face.photo_id !== photo.id));
+      setEvent((current) => current && { ...current, total_photos: Math.max(0, current.total_photos - 1) });
+      await loadAiData();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not delete this photo.");
+    } finally {
+      setDeletingPhotoIds((current) => current.filter((id) => id !== photo.id));
+    }
+  }
+
+  async function deleteCurrentEvent() {
+    if (!event) return;
+    const confirmed = window.confirm(`Delete "${event.event_name}" and all event photos? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setActionError("");
+    setDeletingEvent(true);
+    try {
+      await apiFetch(`/events/${event.id}`, { method: "DELETE" });
+      router.push("/photographer/events");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not delete this event.");
+      setDeletingEvent(false);
+    }
+  }
+
   return (
     <DashboardShell title="Manage Event">
       {!event ? (
@@ -73,6 +112,8 @@ export default function ManageEventPage() {
       ) : (
         <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
           <div className="space-y-6">
+            {actionError && <p className="rounded-lg border border-red-100 bg-red-50 p-4 text-sm text-red-700">{actionError}</p>}
+
             <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
               <div className="aspect-[16/7] bg-slate-100">
                 {event.cover_image ? (
@@ -134,9 +175,19 @@ export default function ManageEventPage() {
               {photos.length ? (
                 <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                   {photos.map((photo) => (
-                    <a key={photo.id} href={assetUrl(photo.image_path)} target="_blank" className="group overflow-hidden rounded-lg border border-slate-200 bg-slate-100 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-                      <img loading="lazy" decoding="async" src={assetUrl(photo.image_path)} alt="Uploaded event photo" className="aspect-square h-full w-full object-cover transition group-hover:scale-105" />
-                    </a>
+                    <div key={photo.id} className="group overflow-hidden rounded-lg border border-slate-200 bg-slate-100 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                      <a href={assetUrl(photo.image_path)} target="_blank" className="block">
+                        <img loading="lazy" decoding="async" src={assetUrl(photo.image_path)} alt="Uploaded event photo" className="aspect-square h-full w-full object-cover transition group-hover:scale-105" />
+                      </a>
+                      <button
+                        onClick={() => deletePhoto(photo)}
+                        disabled={deletingPhotoIds.includes(photo.id)}
+                        className="flex h-10 w-full items-center justify-center gap-2 bg-red-50 px-3 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <Trash2 size={14} />
+                        {deletingPhotoIds.includes(photo.id) ? "Deleting" : "Delete"}
+                      </button>
+                    </div>
                   ))}
                 </div>
               ) : (
@@ -231,6 +282,21 @@ export default function ManageEventPage() {
               >
                 <Link2 size={18} />
                 {wifiCopied ? "Copied" : "Copy WiFi link"}
+              </button>
+            </section>
+
+            <section className="rounded-lg border border-red-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-2">
+                <Trash2 size={20} className="text-red-700" />
+                <h2 className="text-xl font-bold text-red-800">Delete Event</h2>
+              </div>
+              <button
+                onClick={deleteCurrentEvent}
+                disabled={deletingEvent}
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-700 px-5 py-3 text-sm font-semibold text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Trash2 size={18} />
+                {deletingEvent ? "Deleting event" : "Delete event"}
               </button>
             </section>
           </aside>

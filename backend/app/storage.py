@@ -132,6 +132,36 @@ def s3_key_from_url(url: str) -> str | None:
     return None
 
 
+def delete_stored_image(image_reference: str | None):
+    if not image_reference:
+        return
+
+    try:
+        if image_reference.startswith("/uploads/"):
+            local_path_from_public(image_reference).unlink(missing_ok=True)
+            return
+
+        s3_key = s3_key_from_url(image_reference)
+        if s3_key and storage_backend() == "s3":
+            s3_client().delete_object(Bucket=settings.aws_s3_bucket_name, Key=s3_key)
+    except Exception:
+        logger.exception("Failed deleting stored image: %s", image_reference)
+
+
+def delete_guest_selfies(event_id: str):
+    selfie_dir = ensure_upload_root() / "guest_selfies" / event_id
+    if not selfie_dir.exists():
+        return
+
+    for path in selfie_dir.glob("*"):
+        if path.is_file():
+            path.unlink(missing_ok=True)
+    try:
+        selfie_dir.rmdir()
+    except OSError:
+        logger.warning("Guest selfie directory is not empty after cleanup: %s", selfie_dir)
+
+
 async def save_upload_to_s3(file: UploadFile, event_id: str, prefix: str = "") -> str:
     import asyncio
 

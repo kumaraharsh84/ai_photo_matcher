@@ -26,7 +26,7 @@ from .config import settings
 from .database import Base, SessionLocal, engine, get_db
 from .face_processing import process_photo_faces
 from .matching import match_guest_selfie, session_matches
-from .models import Event, Face, GuestMatchSession, PaymentSession, Photo, User
+from .models import Event, Face, GuestMatchResult, GuestMatchSession, PaymentSession, Photo, User
 from .schemas import (
     DashboardStats,
     EventOut,
@@ -45,7 +45,16 @@ from .schemas import (
     UserLogin,
     UserOut,
 )
-from .storage import StorageError, ensure_upload_root, readable_image_file, save_guest_selfie, save_upload, storage_backend
+from .storage import (
+    StorageError,
+    delete_guest_selfies,
+    delete_stored_image,
+    ensure_upload_root,
+    readable_image_file,
+    save_guest_selfie,
+    save_upload,
+    storage_backend,
+)
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -413,6 +422,30 @@ def list_events(current_user: User = Depends(get_current_user), db: Session = De
     return [serialize_event(event) for event in events]
 
 
+@app.delete("/events/{event_id}")
+def delete_event(event_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    event = db.get(Event, event_id)
+    if not event or event.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    image_paths = [photo.image_path for photo in db.query(Photo).filter(Photo.event_id == event_id).all()]
+    if event.cover_image:
+        image_paths.append(event.cover_image)
+
+    db.query(GuestMatchResult).filter(GuestMatchResult.event_id == event_id).delete(synchronize_session=False)
+    db.query(GuestMatchSession).filter(GuestMatchSession.event_id == event_id).delete(synchronize_session=False)
+    db.query(PaymentSession).filter(PaymentSession.event_id == event_id).delete(synchronize_session=False)
+    db.query(Face).filter(Face.event_id == event_id).delete(synchronize_session=False)
+    db.query(Photo).filter(Photo.event_id == event_id).delete(synchronize_session=False)
+    db.delete(event)
+    db.commit()
+
+    for image_path in image_paths:
+        delete_stored_image(image_path)
+    delete_guest_selfies(event_id)
+    return {"status": "deleted", "event_id": event_id}
+
+
 @app.get("/events/{event_id}", response_model=EventOut)
 def get_event(event_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     event = db.get(Event, event_id)
@@ -427,6 +460,26 @@ def get_photos(event_id: str, current_user: User = Depends(get_current_user), db
     if not event or event.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
     return db.query(Photo).filter(Photo.event_id == event_id).order_by(Photo.upload_date.desc()).all()
+
+
+@app.delete("/events/{event_id}/photos/{photo_id}")
+def delete_photo(event_id: str, photo_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    event = db.get(Event, event_id)
+    if not event or event.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    photo = db.get(Photo, photo_id)
+    if not photo or photo.event_id != event_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+
+    image_path = photo.image_path
+    db.query(GuestMatchResult).filter(GuestMatchResult.photo_id == photo_id).delete(synchronize_session=False)
+    db.query(Face).filter(Face.photo_id == photo_id).delete(synchronize_session=False)
+    db.delete(photo)
+    db.commit()
+
+    delete_stored_image(image_path)
+    return {"status": "deleted", "photo_id": photo_id}
 
 
 @app.post("/events/{event_id}/photos", response_model=list[PhotoOut])
