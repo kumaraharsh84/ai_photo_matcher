@@ -52,6 +52,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="AI Face-Based Wedding/Event Photo Finder API")
+ensure_upload_root()
 
 app.add_middleware(
     CORSMiddleware,
